@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Slider Canvas Page</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            font-family: Arial, sans-serif;
+            background: #e0e0e0;
+        }
+
+        .controls {
+            padding: 15px;
+            background: #f5f5f5;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .slider-group {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 10px;
+        }
+
+        .slider-group:last-child {
+            margin-bottom: 0;
+        }
+
+        label {
+            min-width: 60px;
+            font-weight: bold;
+        }
+
+        input[type="range"] {
+            flex: 1;
+        }
+
+        output {
+            min-width: 50px;
+            text-align: right;
+            font-family: monospace;
+        }
+
+        canvas {
+            flex: 1;
+            display: block;
+            padding: 50px;
+            transform-origin: top left;
+            transition: transform 0.1s ease;
+            cursor: grab;
+            border: 1px solid black;
+        }
+
+        button {
+            padding: 8px 20px;
+            font-weight: bold;
+            cursor: pointer;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        button:active {
+            background: #004085;
+        }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <div class="slider-group">
+            <label for="zoom">Zoom:</label>
+            <input type="range" id="zoom" min="50" max="1000" value="100">
+            <output id="zoomValue">100</output>
+        </div>
+        <div class="slider-group">
+            <label for="iterations">Iters:</label>
+            <input type="range" id="iterations" min="0" max="10">
+            <output id="iterationsValue"></output>
+        </div>
+        <div class="slider-group">
+            <button id="resetBtn">Reset View</button>
+        </div>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+        class Point {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+            }
+        }
+
+        class Segment {
+            constructor(p1, p2) {
+                this.p1 = p1;
+                this.p2 = p2;
+            }
+        };
+
+        let zoomLevel = 1;
+        let panX = 0;
+        let panY = 0;
+        let isDragging = false;
+        let dragStartX = 0;
+        let dragStartY = 0;
+
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const zoomSlider = document.getElementById('zoom');
+        const iterationsSlider = document.getElementById('iterations');
+        const zoomValue = document.getElementById('zoomValue');
+        const iterationsValue = document.getElementById('iterationsValue');
+        const resetBtn = document.getElementById('resetBtn');
+
+        let numberOfIterations = iterationsSlider.value = iterationsValue.textContent = 1;
+
+        resetBtn.addEventListener('click', () => {
+            // Reset zoom
+            zoomSlider.value = 100;
+            zoomValue.textContent = 100;
+            zoomLevel = 1;
+
+            // Reset pan
+            panX = 0;
+            panY = 0;
+
+            // Redraw
+            resizeCanvas();
+        });
+
+        // Update output values and apply zoom
+        zoomSlider.addEventListener('input', (e) => {
+            const zoomPercent = e.target.value;
+            zoomValue.textContent = zoomPercent;
+            zoomLevel = zoomPercent / 100;
+            resizeCanvas();
+        });
+
+        iterationsSlider.addEventListener('input', (e) => {
+            numberOfIterations = e.target.value;
+            iterationsValue.textContent = e.target.value;
+
+            resizeCanvas();
+        });
+
+        canvas.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            dragStartX = e.clientX - panX;
+            dragStartY = e.clientY - panY;
+            canvas.style.cursor = 'grabbing';
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                panX = e.clientX - dragStartX;
+                panY = e.clientY - dragStartY;
+                resizeCanvas();
+            }
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            isDragging = false;
+            canvas.style.cursor = 'grab';
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            isDragging = false;
+            canvas.style.cursor = 'grab';
+        });
+
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault(); // Prevent page scrolling
+
+            // Determine zoom direction and amount
+            const zoomSpeed = 0.1;
+            const delta = e.deltaY > 0 ? -zoomSpeed : zoomSpeed;
+
+            // Calculate new zoom percentage
+            let newZoomPercent = +zoomSlider.value + (delta * 100);
+
+            // Clamp to slider min/max values
+            newZoomPercent = Math.max(
+                +zoomSlider.min,
+                Math.min(+zoomSlider.max, newZoomPercent)
+            );
+
+            // Update slider value (this will trigger the slider's input event)
+            zoomSlider.value = newZoomPercent;
+
+            // Manually update display and zoom level
+            zoomValue.textContent = Math.round(newZoomPercent);
+            zoomLevel = newZoomPercent / 100;
+
+            resizeCanvas();
+        });
+
+        /// Resize canvas to fill remaining space and draw the fractal with the appropriate
+        /// number of segments and at the desired panned location and zoom level.
+        function resizeCanvas() {
+            const sqrt3 = 1.7321;
+
+            // Set the canvas's drawing area to match the display size
+            canvas.width = canvas.clientWidth;
+            canvas.height = canvas.clientHeight;
+
+            // Create the initial line segment
+            let segments = [
+                new Segment(
+                    new Point(0, canvas.height / 2),
+                    new Point(canvas.width, canvas.height / 2)
+                )
+            ];
+
+            // Fractalize!
+            for (let i = 0; i < numberOfIterations; i++) {
+                const newSegments = [];
+
+                segments.forEach(seg => {
+                    // For each existing line segment we replace it with four new ones
+                    const segLength = Math.sqrt((seg.p2.x - seg.p1.x) * (seg.p2.x - seg.p1.x) + (seg.p2.y - seg.p1.y) * (seg.p2.y - seg.p1.y));
+
+                    const firstBreakpoint = new Point(
+                        seg.p1.x + (seg.p2.x - seg.p1.x) / 3,
+                        seg.p1.y + (seg.p2.y - seg.p1.y) / 3
+                    );
+                    const midPoint = new Point(
+                        seg.p1.x + (seg.p2.x - seg.p1.x) / 2,
+                        seg.p1.y + (seg.p2.y - seg.p1.y) / 2
+                    );
+                    const secondBreakpoint = new Point(
+                        seg.p2.x - (seg.p2.x - seg.p1.x) / 3,
+                        seg.p2.y - (seg.p2.y - seg.p1.y) / 3
+                    );
+
+                    const apexHeight = sqrt3 * segLength;
+                    const apexPoint = new Point(
+                        midPoint.x + (midPoint.y - firstBreakpoint.y) / segLength * apexHeight,
+                        midPoint.y - (midPoint.x - firstBreakpoint.x) / segLength * apexHeight,
+                    );
+
+                    newSegments.push(
+                        new Segment(
+                            seg.p1,
+                            firstBreakpoint
+                        )
+                    );
+                    newSegments.push(
+                        new Segment(
+                            firstBreakpoint,
+                            apexPoint
+                        )
+                    );
+                    newSegments.push(
+                        new Segment(
+                            apexPoint,
+                            secondBreakpoint
+                        )
+                    );
+                    newSegments.push(
+                        new Segment(
+                            secondBreakpoint,
+                            seg.p2
+                        )
+                    );
+                });
+
+                segments = newSegments;
+            }
+
+            // Save the context state
+            ctx.save();
+
+            // Apply the pan translation and zoom scale
+            ctx.translate(panX, panY);
+            ctx.scale(zoomLevel, zoomLevel);
+
+            // Draw the segments
+            ctx.beginPath();
+            segments.forEach(seg => {
+                ctx.moveTo(seg.p1.x, seg.p1.y);
+                ctx.lineTo(seg.p2.x, seg.p2.y);
+            });
+            ctx.stroke();
+
+            // Restore the context state
+            ctx.restore();
+        }
+
+        // Redraw the canvas on browser resize
+        window.addEventListener('resize', resizeCanvas);
+
+        // ALL SYSTEMS GO!!
+        resizeCanvas();
+    </script>
+</body>
+</html>
