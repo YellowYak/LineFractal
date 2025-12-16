@@ -45,6 +45,16 @@
             flex: 1;
         }
 
+        select {
+            flex: 1;
+            padding: 6px 10px;
+            font-size: 14px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background: white;
+            cursor: pointer;
+        }
+
         output {
             min-width: 50px;
             text-align: right;
@@ -84,14 +94,21 @@
 <body>
     <div class="controls">
         <div class="slider-group">
-            <label for="zoom">Zoom:</label>
+            <label for="zoom">Zoom Level:</label>
             <input type="range" id="zoom" min="50" max="1000" value="100">
-            <output id="zoomValue">100</output>
+            <output id="zoomValue">100%</output>
         </div>
         <div class="slider-group">
-            <label for="iterations">Iters:</label>
+            <label for="iterations">Iterations:</label>
             <input type="range" id="iterations" min="0" max="10">
             <output id="iterationsValue"></output>
+        </div>
+        <div class="slider-group">
+            <label for="startConfig">Starting Config:</label>
+            <select id="startConfig">
+                <option value="line">Line</option>
+                <option value="triangle">Triangle</option>
+            </select>
         </div>
         <div class="slider-group">
             <button id="resetBtn">Reset View</button>
@@ -129,6 +146,7 @@
         const zoomValue = document.getElementById('zoomValue');
         const iterationsValue = document.getElementById('iterationsValue');
         const resetBtn = document.getElementById('resetBtn');
+        const startConfigSelect = document.getElementById('startConfig');
 
         let numberOfIterations = iterationsSlider.value = iterationsValue.textContent = 1;
 
@@ -149,7 +167,7 @@
         // Update output values and apply zoom
         zoomSlider.addEventListener('input', (e) => {
             const zoomPercent = e.target.value;
-            zoomValue.textContent = zoomPercent;
+            zoomValue.textContent = `${zoomPercent}%`;
             zoomLevel = zoomPercent / 100;
             resizeCanvas();
         });
@@ -158,6 +176,10 @@
             numberOfIterations = e.target.value;
             iterationsValue.textContent = e.target.value;
 
+            resizeCanvas();
+        });
+
+        startConfigSelect.addEventListener('change', () => {
             resizeCanvas();
         });
 
@@ -221,13 +243,40 @@
             canvas.width = canvas.clientWidth;
             canvas.height = canvas.clientHeight;
 
-            // Create the initial line segment
-            let segments = [
-                new Segment(
-                    new Point(0, canvas.height / 2),
-                    new Point(canvas.width, canvas.height / 2)
-                )
-            ];
+            // Create the initial segment(s) based on the startConfigSelect drop-down
+            let segments = [];
+            if (startConfigSelect.value === 'line') {
+                segments.push(
+                    new Segment(
+                        new Point(0, canvas.height / 2),
+                        new Point(canvas.width, canvas.height / 2)
+                    )
+                );
+            } else {
+                // Determine segment length for equilateral triangle
+                const halfLengthWidth = Math.min(canvas.width, canvas.height) / 2 * 0.6;
+                const halfLengthHeight = halfLengthWidth * sqrt3 / 2;
+                const vertOffset = halfLengthWidth / sqrt3;
+
+                segments.push(
+                    new Segment(
+                        new Point((canvas.width / 2) - halfLengthWidth, (canvas.height / 2) - vertOffset),
+                        new Point((canvas.width / 2) + halfLengthWidth, (canvas.height / 2) - vertOffset)
+                    )
+                );
+                segments.push(
+                    new Segment(
+                        new Point((canvas.width / 2) + halfLengthWidth, (canvas.height / 2) - vertOffset),
+                        new Point(canvas.width / 2, (canvas.height / 2) + halfLengthHeight)
+                    )
+                );
+                segments.push(
+                    new Segment(
+                        new Point(canvas.width / 2, (canvas.height / 2) + halfLengthHeight),
+                        new Point((canvas.width / 2) - halfLengthWidth, (canvas.height / 2) - vertOffset)
+                    )
+                );
+            }
 
             // Fractalize!
             for (let i = 0; i < numberOfIterations; i++) {
